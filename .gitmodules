@@ -1,0 +1,3 @@
+[submodule "grafascope"]
+	path = grafascope
+	url = ../grafascope

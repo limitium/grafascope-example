@@ -1,0 +1,35 @@
+# grafascope-demo: demo apps + vmagent in separate NS, traces -> victoria-traces in grafascope
+# Deploy obs first, then: ./scripts/update-and-upgrade.sh grafascope-demo demo
+
+namespace: grafascope-demo
+
+global:
+  clusterName: grafascope-demo
+
+# OTEL trace endpoint: Victoria Traces in grafascope (obs) namespace
+serviceA:
+  env:
+    SERVICE_NAME: service-a
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://victoria-traces.grafascope.svc.cluster.local:4317
+
+serviceB:
+  env:
+    SERVICE_NAME: service-b
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://victoria-traces.grafascope.svc.cluster.local:4317
+
+vmagent:
+  includeDefaultScrapeJobs: false
+  remoteWriteUrl: "http://victoria-metrics.grafascope.svc.cluster.local:8428/grafascope/victoria-metrics/api/v1/write"
+  scrapeTargets:
+    - job_name: demo-apps
+      metrics_path: /metrics
+      static_configs:
+        - targets:
+            - demo-apps-grafascope-demo-apps-service-a:8000
+            - demo-apps-grafascope-demo-apps-service-b:8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi

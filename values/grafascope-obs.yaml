@@ -1,0 +1,39 @@
+# grafascope-obs: observability backend (Grafana, Victoria*, fluent-bit, vmagent) in one NS
+# Deploy: NAMESPACE=grafascope ./scripts/update-and-upgrade.sh grafascope-obs obs
+
+namespace: grafascope
+
+global:
+  domain: localhost
+  hosts: []  # [] = use domain; for local dev use localhost
+  clusterName: grafascope-obs
+
+vmagent:
+  includeDefaultScrapeJobs: true
+  remoteWriteUrl: "http://victoria-metrics:8428/grafascope/victoria-metrics/api/v1/write"
+  scrapeTargets: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+fluent-bit:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 512Mi
+  config:
+    outputs: |
+      [OUTPUT]
+          Name http
+          Match kube.*
+          Host victoria-logs
+          Port 9428
+          URI /grafascope/victoria-logs/insert/jsonline?_stream_fields=stream,kubernetes_pod_name,kubernetes_namespace,kubernetes_container_name,service,cluster&_msg_field=_msg,log&_time_field=date
+          Format json_lines
+          Header Content-Type application/json
+          Json_date_format iso8601

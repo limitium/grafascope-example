@@ -9,6 +9,16 @@ global:
     - name: 
   storageClassName: ""
   clusterName: grafascope-dev
+  # Gateway API configuration for HTTPRoute resources.
+  # gateway:
+  #   enabled: true
+  #   routes:
+  #     parentRefs:
+  #       - name: gateway-svc
+  #         namespace: tr-gateway
+  #         sectionName: https
+  #     hostnames:
+  #       - "*.staging.example.com"
 
 grafana:
   persistence:

@@ -7,6 +7,16 @@ global:
   domain: localhost
   hosts: []  # [] = use domain; for local dev use localhost
   clusterName: grafascope-obs
+  # Gateway API configuration for HTTPRoute resources.
+  # gateway:
+  #   enabled: true
+  #   routes:
+  #     parentRefs:
+  #       - name: gateway-svc
+  #         namespace: tr-gateway
+  #         sectionName: https
+  #     hostnames:
+  #       - "*.staging.example.com"
 
 vmagent:
   includeDefaultScrapeJobs: true

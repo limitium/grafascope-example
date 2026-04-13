@@ -41,10 +41,10 @@ Observability backend (Grafana, VictoriaMetrics, Victoria Logs, Victoria Traces,
 
 - **OTLP gRPC (in-cluster):** `http://victoria-traces.grafascope.svc.cluster.local:4317`  
   Used by apps (e.g. demo-apps) and collectors in other namespaces.
-- **OTLP gRPC (via ingress, outside cluster):**  
+- **OTLP gRPC (via gateway, outside cluster):**  
   `http://localhost/grafascope/victoria-traces-grpc`  
-  Use this URL as the OTLP gRPC endpoint; ingress strips the path prefix and forwards to port 4317.  
-  Verify from host or from another machine/container: `./scripts/test-otlp-grpc-ingress.sh [HOST:PORT] [PATH_PREFIX]`.
+  Use this URL as the OTLP gRPC endpoint; the HTTPRoute strips the path prefix and forwards to port 4317.  
+  Verify from host or from another machine/container: `./scripts/test-otlp-grpc-gateway.sh [HOST:PORT] [PATH_PREFIX]`.
 - **OTLP HTTP:**  
   `http://localhost/grafascope/victoria-traces/insert/opentelemetry/v1/traces`  
   POST with OTLP/HTTP protobuf or JSON.

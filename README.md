@@ -43,6 +43,8 @@ Values:
 - [`values/sql-exporter-standalone.yaml`](values/sql-exporter-standalone.yaml) — install the chart at `grafascope/scrapers/sql-exporter`. The file documents how **jobs** (DSN targets) map to **collectors** (queries), with two example jobs and two different collector files.
 - [`values/vmagent-scrape-sql-exporter.yaml`](values/vmagent-scrape-sql-exporter.yaml) — merge into the **grafascope-vmagent** upgrade so vmagent gets an extra `scrapeTargets` job (keeps `sql-exporter.enabled: false` on the umbrella chart so sql_exporter is not deployed twice).
 
+The **grafascope submodule is not modified from this repo**; `sql-exporter-standalone.yaml` includes a minimal `global.image.registry` entry where the vendored chart expects it so standalone Helm renders without chart edits.
+
 From the submodule root (`grafascope-example/grafascope`):
 
 ```bash

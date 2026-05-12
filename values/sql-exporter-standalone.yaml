@@ -43,9 +43,13 @@
 
 enabled: true
 
+# Vendored sql-exporter chart reads global.image.registry; define global.image so Helm does not
+# dereference a missing key when only ports are overridden (submodule chart; do not patch it here).
 global:
   ports:
     sql-exporter: 9399
+  image:
+    registry: ""
 
 config:
   useOracleBootstrap: false

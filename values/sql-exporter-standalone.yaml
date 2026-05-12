@@ -1,0 +1,125 @@
+# Values for the sql-exporter chart alone (not the vmagent umbrella).
+# Deploy sql_exporter in its own release; vmagent scrapes it via a Kubernetes Service DNS name
+# (see vmagent-scrape-sql-exporter.yaml).
+#
+# From submodule root (grafascope-example/grafascope):
+#   kubectl -n grafascope create secret generic sql-exporter-dsns \
+#     --from-literal=ledger='postgresql://user:pass@host:5432/ledger?sslmode=disable' \
+#     --from-literal=warehouse='postgresql://user:pass@host:5432/warehouse?sslmode=disable'
+#
+#   helm upgrade --install sql-exporter ./grafascope/scrapers/sql-exporter -n grafascope \
+#     -f ../values/sql-exporter-standalone.yaml
+#
+# Service name is the chart default `sql-exporter` (see scrapers/sql-exporter templates). Scrape URL examples:
+#   same namespace: sql-exporter:9399
+#   full DNS:       sql-exporter.grafascope.svc.cluster.local:9399
+#
+# -----------------------------------------------------------------------------
+# How connection ↔ query mapping works (burningalchemist/sql_exporter)
+# -----------------------------------------------------------------------------
+#
+# 1) jobs[] — each job is one scrape pipeline: "these collectors run against these DSNs".
+#    - job_name: Prometheus/sql_exporter label to tell jobs apart.
+#    - collectors: [collector_name, ...] — ONLY these collectors run for this job.
+#    - static_configs[].targets — map of logical_target_name: dsn
+#        * The DSN picks host/database/user (and often default schema search_path for Postgres).
+#        * logical_target_name becomes a label on metrics (target / instance style) so you can
+#          tell which row in targets produced the series.
+#
+# 2) collector files (collector_files + collectorFiles in Helm) — define collector_name + metrics + queries.
+#    - A collector is reusable: the same collector_name can be listed on multiple jobs if the SQL
+#      is valid on every DSN you attach it to.
+#    - Different databases AND different queries → use different jobs with different collectors lists,
+#      and usually different collector_name / different .collector.yml files.
+#
+# 3) Same database, different schema — usually one DSN (one target) and qualify tables in SQL:
+#        SELECT ... FROM "${APP_SCHEMA}".orders
+#    Put APP_SCHEMA in extraEnv (ConfigMap/Secret) and reference it in the query string.
+#
+# 4) Same query shape on many shards — one job, many entries under targets (each its own DSN),
+#    same collectors list (collectors run once per target).
+#
+# Trim jobs/collectors below to match what you actually run.
+
+enabled: true
+
+global:
+  ports:
+    sql-exporter: 9399
+
+config:
+  useOracleBootstrap: false
+  sqlExporterYml: |
+    global:
+      scrape_timeout: 30s
+      scrape_timeout_offset: 500ms
+      max_connections: 3
+      max_idle_connections: 3
+
+    # Job "ledger": only LEDGER_POSTGRES_DSN; runs collector ledger_db_counters (DB-level stats).
+    jobs:
+      - job_name: ledger_postgres
+        collectors: [ledger_db_counters]
+        enable_ping: false
+        static_configs:
+          - targets:
+              primary: "${LEDGER_POSTGRES_DSN}"
+
+      # Job "warehouse": different DSN; runs collector warehouse_table_counters (different SQL).
+      - job_name: warehouse_postgres
+        collectors: [warehouse_table_counters]
+        enable_ping: false
+        static_configs:
+          - targets:
+              primary: "${WAREHOUSE_POSTGRES_DSN}"
+
+    collector_files:
+      - "*.collector.yml"
+
+  collectorFiles:
+    ledger_db_counters.collector.yml: |
+      collector_name: ledger_db_counters
+      metrics:
+        - metric_name: ledger_db_transactions_committed_total
+          type: counter
+          help: "Committed transactions (pg_stat_database) on ledger connection."
+          key_labels:
+            - datname
+          values: [xact_commit]
+          query: |
+            SELECT datname, xact_commit::float8 AS xact_commit
+            FROM pg_stat_database
+            WHERE datname IS NOT NULL
+
+    warehouse_table_counters.collector.yml: |
+      collector_name: warehouse_table_counters
+      metrics:
+        - metric_name: warehouse_table_seq_scans_total
+          type: counter
+          help: "Sequential scans (pg_stat_user_tables) on warehouse connection — different query/DB."
+          key_labels:
+            - schemaname
+            - relname
+          values: [seq_scan]
+          query: |
+            SELECT schemaname, relname, seq_scan::float8 AS seq_scan
+            FROM pg_stat_user_tables
+
+extraEnv:
+  - name: LEDGER_POSTGRES_DSN
+    valueFrom:
+      secretKeyRef:
+        name: sql-exporter-dsns
+        key: ledger
+  - name: WAREHOUSE_POSTGRES_DSN
+    valueFrom:
+      secretKeyRef:
+        name: sql-exporter-dsns
+        key: warehouse
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi

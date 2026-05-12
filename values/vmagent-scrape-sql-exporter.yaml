@@ -1,0 +1,30 @@
+# Merge when upgrading grafascope-vmagent only. Keeps sql-exporter out of this release;
+# add a scrape job that reaches the sql-exporter Service by in-cluster DNS.
+#
+# Install sql-exporter first (see sql-exporter-standalone.yaml), then:
+#   helm dependency update ./grafascope/releases/vmagent
+#   helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafascope \
+#     -f grafascope/values.yaml \
+#     -f ../values/grafascope-obs.yaml \
+#     -f ../values/vmagent-scrape-sql-exporter.yaml
+#
+# Adjust the target if sql-exporter runs in another namespace (FQDN) or uses a non-default port.
+
+# Umbrella key matches grafascope/releases/vmagent Chart.yaml (hyphenated).
+sql-exporter:
+  enabled: false
+
+global:
+  sql-exporter:
+    vmagentScrape: false
+
+vmagent:
+  scrapeTargets:
+    - job_name: sql-exporter
+      metrics_path: /metrics
+      static_configs:
+        - targets:
+            # Same namespace as vmagent:
+            - sql-exporter:9399
+            # Cross-namespace example (uncomment and remove the line above if needed):
+            # - sql-exporter.grafascope.svc.cluster.local:9399

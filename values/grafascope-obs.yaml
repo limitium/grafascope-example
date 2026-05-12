@@ -1,5 +1,7 @@
-# grafascope-obs: observability backend (Grafana, Victoria*, fluent-bit, vmagent) in one NS
-# Deploy: NAMESPACE=grafascope ./scripts/update-and-upgrade.sh grafascope-obs obs
+# grafascope-obs: observability backend (gfs-user, Grafana, Victoria*, fluent-bit, vmagent) in one NS
+# From submodule root (grafascope-example/grafascope):
+#   ./scripts/update-and-upgrade.sh grafascope-obs obs
+# Optional sql_exporter: ../values/sql-exporter-standalone.yaml + ../values/vmagent-scrape-sql-exporter.yaml (see README).
 
 namespace: grafascope
 

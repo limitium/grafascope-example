@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test: k3d + PostgreSQL + grafascope-core + vmagent (with sql scrape) + standalone sql-exporter.
+# Smoke test: k3d + PostgreSQL + grafascope-core + grafascope-sql-exporter (umbrella) + vmagent (scrapeSqlExporter).
 # Run from anywhere; uses paths relative to this repo.
 #
 # Prerequisites: k3d, kubectl, helm; Bitnami chart repo (script adds it).
@@ -7,8 +7,8 @@
 # Optional env:
 #   CLUSTER_NAME   (default: grafascope-sqltest)
 #   NAMESPACE      (default: grafascope)
-#   GRAFASCOPE_CHART_ROOT  Directory that contains scrapers/sql-exporter (default: submodule inner tree
-#                          <repo>/grafascope/grafascope). Override if you use a different checkout.
+#   GRAFASCOPE_HELM_ROOT  Directory that contains ./grafascope/releases (submodule inner checkout or
+#                         sibling grafascope monorepo root). Auto-detected if unset.
 #
 set -euo pipefail
 
@@ -18,20 +18,21 @@ SUBMODULE_ROOT="${REPO_ROOT}/grafascope"
 CLUSTER_NAME="${CLUSTER_NAME:-grafascope-sqltest}"
 NAMESPACE="${NAMESPACE:-grafascope}"
 
-GRAFASCOPE_CHART_ROOT="${GRAFASCOPE_CHART_ROOT:-}"
-if [[ -z "${GRAFASCOPE_CHART_ROOT}" ]]; then
-  if [[ -d "${SUBMODULE_ROOT}/grafascope/scrapers/sql-exporter" ]]; then
-    GRAFASCOPE_CHART_ROOT="${SUBMODULE_ROOT}/grafascope"
-  else
-    GRAFASCOPE_CHART_ROOT="$(cd "${REPO_ROOT}/../grafascope/grafascope" 2>/dev/null && pwd || true)"
+GRAFASCOPE_HELM_ROOT="${GRAFASCOPE_HELM_ROOT:-}"
+if [[ -z "${GRAFASCOPE_HELM_ROOT}" ]]; then
+  if [[ -d "${SUBMODULE_ROOT}/grafascope/releases/sql-exporter" ]]; then
+    GRAFASCOPE_HELM_ROOT="${SUBMODULE_ROOT}"
+  elif [[ -d "${REPO_ROOT}/../grafascope/grafascope/releases/sql-exporter" ]]; then
+    GRAFASCOPE_HELM_ROOT="$(cd "${REPO_ROOT}/../grafascope" && pwd)"
   fi
 fi
-if [[ ! -d "${GRAFASCOPE_CHART_ROOT}/scrapers/sql-exporter" ]]; then
-  echo "ERROR: sql-exporter chart not found under GRAFASCOPE_CHART_ROOT=${GRAFASCOPE_CHART_ROOT:-<empty>}" >&2
-  echo "Set GRAFASCOPE_CHART_ROOT to your grafascope monorepo root (directory that contains scrapers/sql-exporter)." >&2
+if [[ -z "${GRAFASCOPE_HELM_ROOT}" || ! -d "${GRAFASCOPE_HELM_ROOT}/grafascope/releases/sql-exporter" ]]; then
+  echo "ERROR: grafascope Helm tree not found (need ./grafascope/releases/sql-exporter)." >&2
+  echo "Bump the grafascope submodule or set GRAFASCOPE_HELM_ROOT to a checkout that includes releases/sql-exporter." >&2
   exit 1
 fi
 
+echo "=== Using GRAFASCOPE_HELM_ROOT=${GRAFASCOPE_HELM_ROOT} ==="
 echo "=== k3d cluster: ${CLUSTER_NAME} ==="
 if ! k3d cluster list 2>/dev/null | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
   k3d cluster create "${CLUSTER_NAME}" --wait --timeout 300s
@@ -49,30 +50,41 @@ helm upgrade --install test-pg bitnami/postgresql -n "${NAMESPACE}" \
   --set primary.persistence.enabled=false \
   --wait --timeout 8m
 
-echo "=== Secret sql-exporter-dsns (ledger + warehouse DSNs; same DB for smoke test) ==="
-kubectl create secret generic sql-exporter-dsns -n "${NAMESPACE}" \
-  --from-literal=ledger='postgresql://postgres:testpass@test-pg-postgresql:5432/postgres?sslmode=disable' \
-  --from-literal=warehouse='postgresql://postgres:testpass@test-pg-postgresql:5432/postgres?sslmode=disable' \
+echo "=== Secret sql-exporter-db-passwords (password strings only; keys ledger-password, warehouse-password) ==="
+kubectl create secret generic sql-exporter-db-passwords -n "${NAMESPACE}" \
+  --from-literal=ledger-password='testpass' \
+  --from-literal=warehouse-password='testpass' \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "=== Helm: grafascope-core + vmagent (submodule) ==="
-cd "${SUBMODULE_ROOT}"
+echo "=== Helm: grafascope-core + grafascope-sql-exporter + vmagent ==="
+cd "${GRAFASCOPE_HELM_ROOT}"
 helm dependency update ./grafascope/releases/core >/dev/null
 helm dependency update ./grafascope/releases/vmagent >/dev/null
+helm dependency update ./grafascope/releases/sql-exporter >/dev/null
+
+# Older smoke runs installed release "sql-exporter" (direct chart); umbrella uses the same object names
+# but release name "grafascope-sql-exporter". Remove the legacy release so ConfigMaps are not adoption-blocked.
+if helm status sql-exporter -n "${NAMESPACE}" >/dev/null 2>&1; then
+  echo "=== Removing legacy Helm release sql-exporter (direct chart) ==="
+  helm uninstall sql-exporter -n "${NAMESPACE}"
+fi
+
 helm upgrade --install grafascope-core ./grafascope/releases/core -n "${NAMESPACE}" \
   -f grafascope/values.yaml \
   -f "${REPO_ROOT}/values/grafascope-obs.yaml" \
+  -f "${REPO_ROOT}/values/k3d-grafana-admin.yaml" \
   --wait --timeout 15m
+
+helm upgrade --install grafascope-sql-exporter ./grafascope/releases/sql-exporter -n "${NAMESPACE}" \
+  -f grafascope/values.yaml \
+  -f "${REPO_ROOT}/values/k3d-sql-exporter-umbrella.yaml" \
+  --wait --timeout 8m
+
 helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n "${NAMESPACE}" \
   -f grafascope/values.yaml \
   -f "${REPO_ROOT}/values/grafascope-obs.yaml" \
   -f "${REPO_ROOT}/values/vmagent-scrape-sql-exporter.yaml" \
   --wait --timeout 8m
-
-echo "=== Helm: sql-exporter (standalone chart from GRAFASCOPE_CHART_ROOT) ==="
-helm upgrade --install sql-exporter "${GRAFASCOPE_CHART_ROOT}/scrapers/sql-exporter" -n "${NAMESPACE}" \
-  -f "${REPO_ROOT}/values/sql-exporter-standalone.yaml" \
-  --wait --timeout 5m
 
 echo "=== Pods ==="
 kubectl get pods -n "${NAMESPACE}"

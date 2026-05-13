@@ -1,0 +1,73 @@
+# k3d smoke only: enables sql-exporter subchart under grafascope-sql-exporter release (nested values).
+# Merged after grafascope/values.yaml. Do not use in production as-is.
+sql-exporter:
+  enabled: true
+  config:
+    # When false (or when sqlExporterYml is set): do not use the chart’s built-in minimal Oracle sql_exporter.yml
+    # (ORACLE_DSN + grafascope_oracle_custom collector). We supply full config below for PostgreSQL k3d smoke.
+    useOracleBootstrap: false
+    sqlExporterYml: |
+      global:
+        scrape_timeout: 30s
+        scrape_timeout_offset: 500ms
+        max_connections: 3
+        max_idle_connections: 3
+      jobs:
+        - job_name: ledger_postgres
+          collectors: [ledger_db_counters]
+          enable_ping: false
+          static_configs:
+            - targets:
+                primary: "postgresql://postgres:${LEDGER_PASSWORD}@test-pg-postgresql:5432/postgres?sslmode=disable"
+        - job_name: warehouse_postgres
+          collectors: [warehouse_table_counters]
+          enable_ping: false
+          static_configs:
+            - targets:
+                primary: "postgresql://postgres:${WAREHOUSE_PASSWORD}@test-pg-postgresql:5432/postgres?sslmode=disable"
+      collector_files:
+        - "*.collector.yml"
+    collectorFiles:
+      ledger_db_counters.collector.yml: |
+        collector_name: ledger_db_counters
+        metrics:
+          - metric_name: ledger_db_transactions_committed_total
+            type: counter
+            help: "Committed transactions (pg_stat_database) on ledger connection."
+            key_labels:
+              - datname
+            values: [xact_commit]
+            query: |
+              SELECT datname, xact_commit::float8 AS xact_commit
+              FROM pg_stat_database
+              WHERE datname IS NOT NULL
+      warehouse_table_counters.collector.yml: |
+        collector_name: warehouse_table_counters
+        metrics:
+          - metric_name: warehouse_table_seq_scans_total
+            type: counter
+            help: "Sequential scans (pg_stat_user_tables) on warehouse connection."
+            key_labels:
+              - schemaname
+              - relname
+            values: [seq_scan]
+            query: |
+              SELECT schemaname, relname, seq_scan::float8 AS seq_scan
+              FROM pg_stat_user_tables
+  extraEnv:
+    - name: LEDGER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: sql-exporter-db-passwords
+          key: ledger-password
+    - name: WAREHOUSE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: sql-exporter-db-passwords
+          key: warehouse-password
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi

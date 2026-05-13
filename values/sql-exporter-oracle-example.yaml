@@ -1,0 +1,108 @@
+# =============================================================================
+# Oracle + sql_exporter (burningalchemist/sql_exporter, go-ora) — full config
+# =============================================================================
+#
+# Use this when you want explicit jobs/collectors in sql_exporter.yml (versioned
+# in Git) and only secrets/non-secret names in Kubernetes.
+#
+# Install (direct chart, from submodule root grafascope-example/grafascope):
+#   kubectl -n grafascope create secret generic sql-exporter-oracle \
+#     --from-literal=oracle-password='YOUR_APP_PASSWORD'
+#   kubectl -n grafascope create configmap sql-exporter-oracle-query \
+#     --from-literal=schema-owner='YOUR_APP_SCHEMA'
+#   helm upgrade --install sql-exporter ./grafascope/scrapers/sql-exporter -n grafascope \
+#     -f ../values/sql-exporter-oracle-example.yaml
+#
+# Umbrella release grafascope-sql-exporter: merge the same keys under sql-exporter:
+#   see values/k3d-sql-exporter-umbrella-oracle-example.yaml
+#
+# Simpler alternative (entire DSN in Secret + chart bootstrap): values/sql-exporter-oracle-minimal.yaml
+#
+# DSN (targets.primary): EZCONNECT form used by go-ora / sql_exporter:
+#   oracle://USER:PASSWORD@HOST:PORT/SERVICE_NAME
+#   Example service: PDB name (e.g. ORCLPDB1) or full service name from lsnrctl.
+# Password here is ${ORACLE_PASSWORD} from the Secret below (avoids putting the
+# password in Git). If the password contains @ : # / etc., URL-encoding inside
+# the DSN is painful — use sql-exporter-oracle-minimal.yaml and store the full
+# DSN string in a Secret instead.
+#
+# Replace oracle-db:1521/ORCLPDB1 with your in-cluster Service DNS (or FQDN)
+# and the correct service name. DB listener must accept connections from this pod.
+#
+# App user needs: CREATE SESSION; SELECT on tables you query (here: COUNT on
+# "${ORACLE_SCHEMA}"."MY_TABLE" — adjust table name or use a view you own).
+#
+# Optional: add writableTmpVolume: true if the driver fails on read-only root (chart default is false).
+#
+# Upstream: https://github.com/burningalchemist/sql_exporter
+# =============================================================================
+
+enabled: true
+
+global:
+  ports:
+    sql-exporter: 9399
+  image:
+    registry: ""
+
+config:
+  sqlExporterYml: |
+    global:
+      scrape_timeout: 45s
+      scrape_timeout_offset: 500ms
+      min_interval: 0s
+      max_connections: 3
+      max_idle_connections: 3
+      max_connection_lifetime: 10m
+
+    jobs:
+      - job_name: oracle_app
+        collectors: [oracle_probe, oracle_app_table_rows]
+        enable_ping: true
+        static_configs:
+          - targets:
+              primary: "oracle://app_user:${ORACLE_PASSWORD}@oracle-db.grafascope.svc.cluster.local:1521/ORCLPDB1"
+
+    collector_files:
+      - "*.collector.yml"
+
+  collectorFiles:
+    oracle_probe.collector.yml: |
+      collector_name: oracle_probe
+      metrics:
+        - metric_name: oracle_sql_exporter_probe
+          type: gauge
+          help: "1 when Oracle accepts SELECT 1 FROM DUAL (sanity / connectivity)."
+          values: [v]
+          query: |
+            SELECT 1 AS v FROM DUAL
+
+    oracle_app_table_rows.collector.yml: |
+      collector_name: oracle_app_table_rows
+      metrics:
+        - metric_name: oracle_my_table_row_count
+          type: gauge
+          help: "Row count for MY_TABLE owned by schema ORACLE_SCHEMA (from ConfigMap)."
+          values: [cnt]
+          query: |
+            SELECT COUNT(*) AS cnt
+            FROM "${ORACLE_SCHEMA}"."MY_TABLE"
+
+extraEnv:
+  - name: ORACLE_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: sql-exporter-oracle
+        key: oracle-password
+  - name: ORACLE_SCHEMA
+    valueFrom:
+      configMapKeyRef:
+        name: sql-exporter-oracle-query
+        key: schema-owner
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

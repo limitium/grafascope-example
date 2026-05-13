@@ -32,29 +32,39 @@ Run commands from **`grafascope-example/grafascope`** (submodule root). The scri
    ./scripts/update-and-upgrade.sh grafascope-demo demo
    ```
 
-Each env can set `namespace:` in its values file; the script uses it for `helm -n`. Other actions: `all`, `core`, `vmagent`, `fluent-bit`, `demo-apps`, `delete-all`.
+Each env can set `namespace:` in its values file; the script uses it for `helm -n`. Other actions: `all`, `core`, `vmagent`, `sql-exporter`, `fluent-bit`, `demo-apps`, `delete-all`.
 
 ## SQL exporter (optional)
 
-[sql_exporter](https://github.com/burningalchemist/sql_exporter) runs as its **own Helm release**: it executes SQL and serves `/metrics` only. **vmagent** (separate release) scrapes that URL over the cluster network—typically the in-cluster Service hostname, for example `sql-exporter:9399` in the same namespace, or `sql-exporter.<namespace>.svc.cluster.local:9399` from elsewhere.
+[sql_exporter](https://github.com/burningalchemist/sql_exporter) is deployed as **`grafascope-sql-exporter`** (separate Helm release from vmagent). **vmagent** scrapes its `/metrics` when **`vmagent.scrapeSqlExporter: true`** is set in merged values (same namespace, Service `sql-exporter`, port `global.ports.sql-exporter`).
 
 Values:
 
-- [`values/sql-exporter-standalone.yaml`](values/sql-exporter-standalone.yaml) — install the chart at `grafascope/scrapers/sql-exporter`. The file documents how **jobs** (DSN targets) map to **collectors** (queries), with two example jobs and two different collector files.
-- [`values/vmagent-scrape-sql-exporter.yaml`](values/vmagent-scrape-sql-exporter.yaml) — merge into the **grafascope-vmagent** upgrade so vmagent gets an extra `scrapeTargets` job (keeps `sql-exporter.enabled: false` on the umbrella chart so sql_exporter is not deployed twice).
+- [`values/sql-exporter-standalone.yaml`](values/sql-exporter-standalone.yaml) — direct install of `grafascope/scrapers/sql-exporter` (Postgres-style example: jobs, collectors, passwords from Secrets). Alternatively enable **`sql-exporter.enabled`** in your env values and use `./scripts/update-and-upgrade.sh <env> sql-exporter` or `obs` / `all` (upstream installs `grafascope/releases/sql-exporter`).
+- [`values/sql-exporter-oracle-example.yaml`](values/sql-exporter-oracle-example.yaml) — **Oracle (full config):** explicit `sql_exporter.yml` + collectors; password in Secret (`ORACLE_PASSWORD`); schema/table names via ConfigMap (`ORACLE_SCHEMA`). See file header for DSN shape, grants, and Helm commands.
+- [`values/sql-exporter-oracle-minimal.yaml`](values/sql-exporter-oracle-minimal.yaml) — **Oracle (minimal):** entire `oracle://...` DSN in Secret (`ORACLE_DSN`); chart bootstrap generates a probe-only config (`oracle_sql_exporter_probe`). Best when passwords contain URL-hostile characters.
+- [`values/k3d-sql-exporter-umbrella.yaml`](values/k3d-sql-exporter-umbrella.yaml) — nested values for **`grafascope-sql-exporter`** (used by the k3d smoke script; Postgres jobs).
+- [`values/k3d-sql-exporter-umbrella-oracle-example.yaml`](values/k3d-sql-exporter-umbrella-oracle-example.yaml) — umbrella-shaped overlay matching **`sql-exporter-oracle-example.yaml`**.
+- [`values/k3d-sql-exporter-umbrella-oracle-minimal.yaml`](values/k3d-sql-exporter-umbrella-oracle-minimal.yaml) — umbrella-shaped overlay matching **`sql-exporter-oracle-minimal.yaml`**.
+- [`values/vmagent-scrape-sql-exporter.yaml`](values/vmagent-scrape-sql-exporter.yaml) — sets **`vmagent.scrapeSqlExporter: true`** (built-in scrape job; no manual `scrapeTargets` entry).
 
 The **grafascope submodule is not modified from this repo**; `sql-exporter-standalone.yaml` includes a minimal `global.image.registry` entry where the vendored chart expects it so standalone Helm renders without chart edits.
 
 From the submodule root (`grafascope-example/grafascope`):
 
 ```bash
-kubectl -n grafascope create secret generic sql-exporter-dsns \
-  --from-literal=ledger='postgresql://user:pass@host:5432/ledger?sslmode=disable' \
-  --from-literal=warehouse='postgresql://user:pass@host:5432/warehouse?sslmode=disable'
+kubectl -n grafascope create secret generic sql-exporter-db-passwords \
+  --from-literal=ledger-password='REPLACE_ME' \
+  --from-literal=warehouse-password='REPLACE_ME'
 
+# Option A — direct chart (example values are flat for this chart only):
 helm upgrade --install sql-exporter ./grafascope/scrapers/sql-exporter -n grafascope \
   -f ../values/sql-exporter-standalone.yaml
 
+# Option B — upstream umbrella release (values live under sql-exporter: in grafascope/values.yaml + overlays):
+#   ./scripts/update-and-upgrade.sh grafascope-obs sql-exporter
+
+# Enable vmagent’s sql-exporter scrape job (after sql-exporter Service exists):
 helm dependency update ./grafascope/releases/vmagent
 helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafascope \
   -f grafascope/values.yaml \
@@ -62,7 +72,16 @@ helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafa
   -f ../values/vmagent-scrape-sql-exporter.yaml
 ```
 
-Edit the scrape target in `vmagent-scrape-sql-exporter.yaml` if sql-exporter uses another namespace, port, or release-derived Service name.
+For cross-namespace scrape, leave **`vmagent.scrapeSqlExporter`** false and add a **`vmagent.scrapeTargets`** job with an FQDN target instead.
+
+### Oracle (reference values)
+
+Two patterns live under `values/` (each has a matching `k3d-sql-exporter-umbrella-*.yaml` for **`grafascope-sql-exporter`**):
+
+1. **Full** — [`sql-exporter-oracle-example.yaml`](values/sql-exporter-oracle-example.yaml): Git-versioned jobs/collectors; only secrets and non-secret names in Kubernetes.
+2. **Minimal** — [`sql-exporter-oracle-minimal.yaml`](values/sql-exporter-oracle-minimal.yaml): one Secret holds the full DSN; the chart’s Oracle bootstrap supplies `sql_exporter.yml` and a `FROM DUAL` probe.
+
+You still need an Oracle endpoint reachable from the cluster (often a `Service` pointing at an external DB or a sidecar). The k3d smoke script does not install Oracle.
 
 ### k3d smoke test
 
@@ -72,7 +91,7 @@ From the example repo root (after `git submodule update --init --recursive` so `
 ./scripts/k3d-test-sql-exporter.sh
 ```
 
-The script installs the sql-exporter chart from the submodule (`grafascope/grafascope/scrapers/sql-exporter`). If that path is missing, set `GRAFASCOPE_CHART_ROOT` to a checkout whose `scrapers/sql-exporter` directory contains the chart.
+The script installs **`grafascope-sql-exporter`** from the submodule when it includes `grafascope/releases/sql-exporter`; otherwise set **`GRAFASCOPE_HELM_ROOT`** to a grafascope checkout whose `grafascope/releases/sql-exporter` directory exists (for example the sibling `../grafascope` monorepo).
 
 ## Structure
 
@@ -85,8 +104,13 @@ grafascope-example/
 │   ├── grafascope-dev.yaml  # single env
 │   ├── grafascope-obs.yaml  # obs backend (core + fluent + vmagent)
 │   ├── grafascope-demo.yaml # demo apps + vmagent, OTEL → victoria-traces
-│   ├── sql-exporter-standalone.yaml   # optional: sql_exporter chart only
-│   └── vmagent-scrape-sql-exporter.yaml  # optional: vmagent scrape job via k8s DNS
+│   ├── sql-exporter-standalone.yaml   # optional: sql_exporter (Postgres-style example)
+│   ├── sql-exporter-oracle-example.yaml  # Oracle: full sql_exporter.yml + Secret password
+│   ├── sql-exporter-oracle-minimal.yaml  # Oracle: full DSN in Secret + chart bootstrap
+│   ├── k3d-sql-exporter-umbrella.yaml   # k3d: nested values for grafascope-sql-exporter (Postgres)
+│   ├── k3d-sql-exporter-umbrella-oracle-example.yaml
+│   ├── k3d-sql-exporter-umbrella-oracle-minimal.yaml
+│   └── vmagent-scrape-sql-exporter.yaml  # optional: vmagent.scrapeSqlExporter: true
 └── README.md
 ```
 

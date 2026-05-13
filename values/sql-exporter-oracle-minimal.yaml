@@ -1,0 +1,46 @@
+# =============================================================================
+# Oracle + sql_exporter — minimal (full DSN in Secret + chart Oracle bootstrap)
+# =============================================================================
+#
+# The chart can generate a small sql_exporter.yml when sqlExporterYml is empty
+# and useOracleBootstrap is true: one job targeting ${ORACLE_DSN} and a probe
+# collector (SELECT 1 FROM DUAL). Metric: oracle_sql_exporter_probe
+#
+# Use this when you prefer one Secret with the full connection string (easiest
+# for passwords with special characters that break oracle://user:pass@... URLs).
+#
+# Install (direct chart, from submodule root grafascope-example/grafascope):
+#   kubectl -n grafascope create secret generic sql-exporter-oracle \
+#     --from-literal=dsn='oracle://app_user:YOUR_PASSWORD@oracle-db.grafascope.svc.cluster.local:1521/ORCLPDB1'
+#   helm upgrade --install sql-exporter ./grafascope/scrapers/sql-exporter -n grafascope \
+#     -f ../values/sql-exporter-oracle-minimal.yaml
+#
+# Umbrella: values/k3d-sql-exporter-umbrella-oracle-minimal.yaml
+#
+# =============================================================================
+
+enabled: true
+
+global:
+  ports:
+    sql-exporter: 9399
+  image:
+    registry: ""
+
+config:
+  sqlExporterYml: ""
+  useOracleBootstrap: true
+
+extraEnv:
+  - name: ORACLE_DSN
+    valueFrom:
+      secretKeyRef:
+        name: sql-exporter-oracle
+        key: dsn
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

@@ -1,0 +1,5 @@
+# k3d / local smoke only — satisfies core Grafana chart admin requirement.
+grafana:
+  admin:
+    user: admin
+    password: k3d-smoke-not-for-production

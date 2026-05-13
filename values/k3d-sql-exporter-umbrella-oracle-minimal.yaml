@@ -1,0 +1,27 @@
+# Nested copy of values/sql-exporter-oracle-minimal.yaml for grafascope-sql-exporter.
+#
+#   kubectl -n grafascope create secret generic sql-exporter-oracle \
+#     --from-literal=dsn='oracle://app_user:YOUR_PASSWORD@oracle-db.grafascope.svc.cluster.local:1521/ORCLPDB1'
+#   helm upgrade --install grafascope-sql-exporter ./grafascope/releases/sql-exporter -n grafascope \
+#     -f grafascope/values.yaml -f ../values/k3d-sql-exporter-umbrella-oracle-minimal.yaml
+#
+sql-exporter:
+  enabled: true
+
+  config:
+    sqlExporterYml: ""
+    useOracleBootstrap: true
+
+  extraEnv:
+    - name: ORACLE_DSN
+      valueFrom:
+        secretKeyRef:
+          name: sql-exporter-oracle
+          key: dsn
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

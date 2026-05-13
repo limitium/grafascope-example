@@ -1,0 +1,73 @@
+# Nested copy of values/sql-exporter-oracle-example.yaml for the
+# grafascope-sql-exporter umbrella release (merge after grafascope/values.yaml).
+#
+#   helm upgrade --install grafascope-sql-exporter ./grafascope/releases/sql-exporter -n grafascope \
+#     -f grafascope/values.yaml -f ../values/k3d-sql-exporter-umbrella-oracle-example.yaml
+#
+# Prerequisites: Secret sql-exporter-oracle (oracle-password), ConfigMap
+# sql-exporter-oracle-query (schema-owner), Oracle reachable at the DSN host.
+#
+sql-exporter:
+  enabled: true
+
+  config:
+    sqlExporterYml: |
+      global:
+        scrape_timeout: 45s
+        scrape_timeout_offset: 500ms
+        min_interval: 0s
+        max_connections: 3
+        max_idle_connections: 3
+        max_connection_lifetime: 10m
+
+      jobs:
+        - job_name: oracle_app
+          collectors: [oracle_probe, oracle_app_table_rows]
+          enable_ping: true
+          static_configs:
+            - targets:
+                primary: "oracle://app_user:${ORACLE_PASSWORD}@oracle-db.grafascope.svc.cluster.local:1521/ORCLPDB1"
+
+      collector_files:
+        - "*.collector.yml"
+
+    collectorFiles:
+      oracle_probe.collector.yml: |
+        collector_name: oracle_probe
+        metrics:
+          - metric_name: oracle_sql_exporter_probe
+            type: gauge
+            help: "1 when Oracle accepts SELECT 1 FROM DUAL (sanity / connectivity)."
+            values: [v]
+            query: |
+              SELECT 1 AS v FROM DUAL
+
+      oracle_app_table_rows.collector.yml: |
+        collector_name: oracle_app_table_rows
+        metrics:
+          - metric_name: oracle_my_table_row_count
+            type: gauge
+            help: "Row count for MY_TABLE owned by schema ORACLE_SCHEMA (from ConfigMap)."
+            values: [cnt]
+            query: |
+              SELECT COUNT(*) AS cnt
+              FROM "${ORACLE_SCHEMA}"."MY_TABLE"
+
+  extraEnv:
+    - name: ORACLE_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: sql-exporter-oracle
+          key: oracle-password
+    - name: ORACLE_SCHEMA
+      valueFrom:
+        configMapKeyRef:
+          name: sql-exporter-oracle-query
+          key: schema-owner
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

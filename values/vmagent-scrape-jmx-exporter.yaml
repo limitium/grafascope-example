@@ -1,0 +1,17 @@
+# Merge when upgrading grafascope-vmagent. Turns on the optional jmx-exporter
+# scrape job (same idea as vmagent.scrapeSqlExporter: a single boolean switch).
+#
+# Expects a Service named jmx-exporter in the same namespace (from
+# grafascope-jmx-exporter release or a direct install of scrapers/jmx-exporter).
+# Port comes from global.ports.jmx-exporter (default 9404).
+#
+# From submodule root (grafascope-example/grafascope):
+#   ./scripts/update-and-upgrade.sh grafascope-obs vmagent
+#   # or merge this file into any vmagent upgrade:
+#   helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafascope \
+#     -f grafascope/values.yaml \
+#     -f ../values/grafascope-obs.yaml \
+#     -f ../values/vmagent-scrape-jmx-exporter.yaml
+#
+vmagent:
+  scrapeJmxExporter: true

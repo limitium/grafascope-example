@@ -32,7 +32,7 @@ Run commands from **`grafascope-example/grafascope`** (submodule root). The scri
    ./scripts/update-and-upgrade.sh grafascope-demo demo
    ```
 
-Each env can set `namespace:` in its values file; the script uses it for `helm -n`. Other actions: `all`, `core`, `vmagent`, `sql-exporter`, `fluent-bit`, `demo-apps`, `delete-all`.
+Each env can set `namespace:` in its values file; the script uses it for `helm -n`. Other actions: `all`, `core`, `vmagent`, `sql-exporter`, `jmx-exporter`, `fluent-bit`, `demo-apps`, `delete-all`.
 
 ## SQL exporter (optional)
 
@@ -48,7 +48,7 @@ Values:
 - [`values/k3d-sql-exporter-umbrella-oracle-minimal.yaml`](values/k3d-sql-exporter-umbrella-oracle-minimal.yaml) — umbrella-shaped overlay matching **`sql-exporter-oracle-minimal.yaml`**.
 - [`values/vmagent-scrape-sql-exporter.yaml`](values/vmagent-scrape-sql-exporter.yaml) — sets **`vmagent.scrapeSqlExporter: true`** (built-in scrape job; no manual `scrapeTargets` entry).
 
-The **grafascope submodule is not modified from this repo**; `sql-exporter-standalone.yaml` includes a minimal `global.image.registry` entry where the vendored chart expects it so standalone Helm renders without chart edits.
+The **grafascope submodule includes first-class sql-exporter and jmx-exporter charts/releases**; this repo keeps only environment-specific value overlays and smoke scripts.
 
 From the submodule root (`grafascope-example/grafascope`):
 
@@ -74,6 +74,35 @@ helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafa
 
 For cross-namespace scrape, leave **`vmagent.scrapeSqlExporter`** false and add a **`vmagent.scrapeTargets`** job with an FQDN target instead.
 
+## Java JMX exporter (optional)
+
+[jmx_exporter](https://github.com/prometheus/jmx_exporter) is deployed as **`grafascope-jmx-exporter`** (separate Helm release from vmagent). It supports **multiple JMX endpoints in one release** via `jmx-exporter.targets[]` (each target has its own `jmxUrl` and rules). **vmagent** scrapes all matching exporter Services when **`vmagent.scrapeJmxExporter: true`** is set in merged values.
+
+Values:
+
+- [`values/jmx-exporter-standalone.yaml`](values/jmx-exporter-standalone.yaml) — direct install of `grafascope/scrapers/jmx-exporter` with **multi-target** examples (`targets[]`) and per-target JMX->metric rule mappings.
+- [`values/k3d-jmx-exporter-umbrella.yaml`](values/k3d-jmx-exporter-umbrella.yaml) — nested values for **`grafascope-jmx-exporter`** (used by the JMX k3d smoke script).
+- [`values/vmagent-scrape-jmx-exporter.yaml`](values/vmagent-scrape-jmx-exporter.yaml) — sets **`vmagent.scrapeJmxExporter: true`** (built-in scrape job; no manual `scrapeTargets` entry).
+- [`values/jmx-exporter-config-example.yaml`](values/jmx-exporter-config-example.yaml) — standalone rules reference for Java agent/standalone usage.
+
+From the submodule root (`grafascope-example/grafascope`):
+
+```bash
+# Option A — direct chart:
+helm upgrade --install jmx-exporter ./grafascope/scrapers/jmx-exporter -n grafascope \
+  -f ../values/jmx-exporter-standalone.yaml
+
+# Option B — upstream umbrella release:
+#   ./scripts/update-and-upgrade.sh grafascope-obs jmx-exporter
+
+# Enable vmagent's jmx-exporter scrape job:
+helm dependency update ./grafascope/releases/vmagent
+helm upgrade --install grafascope-vmagent ./grafascope/releases/vmagent -n grafascope \
+  -f grafascope/values.yaml \
+  -f ../values/grafascope-obs.yaml \
+  -f ../values/vmagent-scrape-jmx-exporter.yaml
+```
+
 ### Oracle (reference values)
 
 Two patterns live under `values/` (each has a matching `k3d-sql-exporter-umbrella-*.yaml` for **`grafascope-sql-exporter`**):
@@ -83,12 +112,13 @@ Two patterns live under `values/` (each has a matching `k3d-sql-exporter-umbrell
 
 You still need an Oracle endpoint reachable from the cluster (often a `Service` pointing at an external DB or a sidecar). The k3d smoke script does not install Oracle.
 
-### k3d smoke test
+### k3d smoke tests
 
 From the example repo root (after `git submodule update --init --recursive` so `grafascope/grafascope/scrapers/sql-exporter` exists):
 
 ```bash
 ./scripts/k3d-test-sql-exporter.sh
+./scripts/k3d-test-jmx-exporter.sh
 ```
 
 The script installs **`grafascope-sql-exporter`** from the submodule when it includes `grafascope/releases/sql-exporter`; otherwise set **`GRAFASCOPE_HELM_ROOT`** to a grafascope checkout whose `grafascope/releases/sql-exporter` directory exists (for example the sibling `../grafascope` monorepo).
@@ -99,7 +129,8 @@ The script installs **`grafascope-sql-exporter`** from the submodule when it inc
 grafascope-example/
 ├── grafascope/              # submodule → ../grafascope
 ├── scripts/
-│   └── k3d-test-sql-exporter.sh  # optional: k3d smoke test (Postgres + core + vmagent + sql_exporter)
+│   ├── k3d-test-sql-exporter.sh  # optional: k3d smoke test (Postgres + core + vmagent + sql_exporter)
+│   └── k3d-test-jmx-exporter.sh  # optional: k3d smoke test (Java JMX target + jmx_exporter + vmagent)
 ├── values/
 │   ├── grafascope-dev.yaml  # single env
 │   ├── grafascope-obs.yaml  # obs backend (core + fluent + vmagent)
@@ -110,7 +141,11 @@ grafascope-example/
 │   ├── k3d-sql-exporter-umbrella.yaml   # k3d: nested values for grafascope-sql-exporter (Postgres)
 │   ├── k3d-sql-exporter-umbrella-oracle-example.yaml
 │   ├── k3d-sql-exporter-umbrella-oracle-minimal.yaml
-│   └── vmagent-scrape-sql-exporter.yaml  # optional: vmagent.scrapeSqlExporter: true
+│   ├── jmx-exporter-standalone.yaml     # optional: jmx-exporter standalone values (target jmxUrl/rules)
+│   ├── k3d-jmx-exporter-umbrella.yaml   # k3d: nested values for grafascope-jmx-exporter
+│   ├── vmagent-scrape-sql-exporter.yaml  # optional: vmagent.scrapeSqlExporter: true
+│   ├── vmagent-scrape-jmx-exporter.yaml  # optional: vmagent.scrapeJmxExporter: true
+│   └── jmx-exporter-config-example.yaml  # reference jmx_exporter config.yaml (JMX -> metric mapping)
 └── README.md
 ```
 

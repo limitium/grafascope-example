@@ -32,6 +32,11 @@
 # App user needs: CREATE SESSION; SELECT on tables you query (here: COUNT on
 # "${ORACLE_SCHEMA}"."MY_TABLE" — adjust table name or use a view you own).
 #
+# Oracle + sql_exporter: each metric `values:` entry must match a result column
+# name exactly. Unquoted SQL aliases are uppercased by Oracle (e.g. cnt → CNT),
+# which triggers "Missing values for the requested columns". Use quoted aliases
+# in SELECT lists, e.g. AS "cnt" or AS "allocations_total", matching `values:`.
+#
 # Optional: add writableTmpVolume: true if the driver fails on read-only root (chart default is false).
 #
 # Upstream: https://github.com/burningalchemist/sql_exporter
@@ -75,7 +80,7 @@ config:
           help: "1 when Oracle accepts SELECT 1 FROM DUAL (sanity / connectivity)."
           values: [v]
           query: |
-            SELECT 1 AS v FROM DUAL
+            SELECT 1 AS "v" FROM DUAL
 
     oracle_app_table_rows.collector.yml: |
       collector_name: oracle_app_table_rows
@@ -85,7 +90,7 @@ config:
           help: "Row count for MY_TABLE owned by schema ORACLE_SCHEMA (from ConfigMap)."
           values: [cnt]
           query: |
-            SELECT COUNT(*) AS cnt
+            SELECT COUNT(*) AS "cnt"
             FROM "${ORACLE_SCHEMA}"."MY_TABLE"
 
 extraEnv:

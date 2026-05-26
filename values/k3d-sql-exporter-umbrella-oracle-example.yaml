@@ -40,7 +40,7 @@ sql-exporter:
             help: "1 when Oracle accepts SELECT 1 FROM DUAL (sanity / connectivity)."
             values: [v]
             query: |
-              SELECT 1 AS v FROM DUAL
+              SELECT 1 AS "v" FROM DUAL
 
       oracle_app_table_rows.collector.yml: |
         collector_name: oracle_app_table_rows
@@ -50,7 +50,7 @@ sql-exporter:
             help: "Row count for MY_TABLE owned by schema ORACLE_SCHEMA (from ConfigMap)."
             values: [cnt]
             query: |
-              SELECT COUNT(*) AS cnt
+              SELECT COUNT(*) AS "cnt"
               FROM "${ORACLE_SCHEMA}"."MY_TABLE"
 
   extraEnv:

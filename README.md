@@ -76,7 +76,7 @@ For cross-namespace scrape, leave **`vmagent.scrapeSqlExporter`** false and add 
 
 ## Java JMX exporter (optional)
 
-[jmx_exporter](https://github.com/prometheus/jmx_exporter) is deployed as **`grafascope-jmx-exporter`** (separate Helm release from vmagent). It supports **multiple JMX endpoints in one release** via `jmx-exporter.targets[]` (each target has its own `jmxUrl` and rules). **vmagent** scrapes all matching exporter Services when **`vmagent.scrapeJmxExporter: true`** is set in merged values.
+[jmx_exporter](https://github.com/prometheus/jmx_exporter) is deployed as **`grafascope-jmx-exporter`** (separate Helm release from vmagent). Like sql_exporter, it exposes **one `/metrics` endpoint** (`jmx-exporter:9404`) while `jmx-exporter.targets[]` defines multiple JMX backends, each with its own `jmxUrl` and `rules`. Each `targets[].name` is added as a Prometheus label (default key `target`, e.g. `target="service-a"`). **vmagent** scrapes that single Service when **`vmagent.scrapeJmxExporter: true`** is set in merged values.
 
 Values:
 

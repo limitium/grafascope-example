@@ -2,18 +2,20 @@
 # release (nested values). Merged after grafascope/values.yaml.
 jmx-exporter:
   enabled: true
-  config:
-    jmxExporterYaml: |
-      startDelaySeconds: 0
-      lowercaseOutputName: true
-      lowercaseOutputLabelNames: true
-      # For k3d smoke test, Java target service exposing remote JMX.
-      jmxUrl: service:jmx:rmi:///jndi/rmi://test-jmx-java:9999/jmxrmi
-      ssl: false
-      rules:
-        - pattern: "java.lang<type=Memory><HeapMemoryUsage>used: (\\d+)"
-          name: jvm_memory_heap_used_bytes
-          type: GAUGE
-        - pattern: "java.lang<type=Threading><ThreadCount>: (\\d+)"
-          name: jvm_threads_current
-          type: GAUGE
+  targets:
+    - name: test-jmx-java
+      config:
+        jmxExporterYaml: |
+          startDelaySeconds: 0
+          lowercaseOutputName: true
+          lowercaseOutputLabelNames: true
+          # For k3d smoke test, Java target service exposing remote JMX.
+          jmxUrl: service:jmx:rmi:///jndi/rmi://test-jmx-java:9999/jmxrmi
+          ssl: false
+          rules:
+            - pattern: "java.lang<type=Memory><HeapMemoryUsage>used: (\\d+)"
+              name: jvm_memory_heap_used_bytes
+              type: GAUGE
+            - pattern: "java.lang<type=Threading><ThreadCount>: (\\d+)"
+              name: jvm_threads_current
+              type: GAUGE

@@ -134,23 +134,29 @@ kubectl port-forward -n "${NAMESPACE}" svc/victoria-metrics 18428:8428 >/tmp/pf-
 PF2=$!
 sleep 4
 
-if ! curl -sf "http://127.0.0.1:19404/metrics" | grep -q 'jvm_memory_heap_used_bytes'; then
+METRICS="$(curl -sf "http://127.0.0.1:19404/metrics")"
+if ! echo "${METRICS}" | grep -q 'jvm_memory_heap_used_bytes'; then
   echo "FAIL: jmx-exporter /metrics missing jvm_memory_heap_used_bytes" >&2
+  exit 1
+fi
+if ! echo "${METRICS}" | grep -q 'target="test-jmx-java"'; then
+  echo "FAIL: jmx-exporter /metrics missing target=\"test-jmx-java\" label from targets[].name" >&2
   exit 1
 fi
 
 ok=0
 for i in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:18428/grafascope/victoria-metrics/api/v1/query?query=jvm_memory_heap_used_bytes" | grep -q '"status":"success"'; then
+  if curl -sf --get 'http://127.0.0.1:18428/grafascope/victoria-metrics/api/v1/query' \
+    --data-urlencode 'query=jvm_memory_heap_used_bytes{target="test-jmx-java"}' | grep -q '"status":"success"'; then
     ok=1
     break
   fi
   sleep 2
 done
 if [[ "$ok" != "1" ]]; then
-  echo "FAIL: VictoriaMetrics query for jvm_memory_heap_used_bytes" >&2
+  echo "FAIL: VictoriaMetrics query for jvm_memory_heap_used_bytes{target=\"test-jmx-java\"}" >&2
   exit 1
 fi
 
-echo "OK: jmx-exporter exposes JMX-derived metrics; vmagent remote_write path sees the series."
+echo "OK: single jmx-exporter endpoint exposes JMX metrics with target label; vmagent remote_write path sees the series."
 echo "Tip: kubectl port-forward -n ${NAMESPACE} svc/grafana 3000:3000  # explore in Grafana"

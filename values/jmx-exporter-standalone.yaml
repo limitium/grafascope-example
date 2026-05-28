@@ -20,17 +20,9 @@ global:
   image:
     registry: ""
 
-config:
-  # Backward-compatible single-target mode lives here.
-  # For multiple endpoints/metrics use `targets` below.
-  jmxExporterYaml: ""
-
+# targets[].name is added as label target="<name>" on every metric sample.
 targets:
   - name: service-a
-    service:
-      enabled: true
-      type: ClusterIP
-      port: 9404
     config:
       jmxExporterYaml: |
         startDelaySeconds: 0
@@ -44,10 +36,6 @@ targets:
             type: GAUGE
 
   - name: service-b
-    service:
-      enabled: true
-      type: ClusterIP
-      port: 9404
     config:
       jmxExporterYaml: |
         startDelaySeconds: 0
@@ -59,7 +47,6 @@ targets:
           - pattern: "java.lang<type=Threading><ThreadCount>: (\\d+)"
             name: service_b_jvm_threads_current
             type: GAUGE
-        help: "Current heap memory used in bytes."
 
 resources:
   requests:

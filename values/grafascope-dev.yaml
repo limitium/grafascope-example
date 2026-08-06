@@ -5,8 +5,7 @@ global:
   hosts: []
   image:
     registry: ""
-  imagePullSecrets:
-    - name: 
+  imagePullSecrets: []
   storageClassName: ""
   clusterName: grafascope-dev
   # Gateway API configuration for HTTPRoute resources.
@@ -65,6 +64,7 @@ victoria-traces:
 
 vmagent:
   remoteWriteUrl: "http://victoria-metrics:8428/grafascope/victoria-metrics/api/v1/write"
+  scrapeJmxScraper: true
   scrapeTargets:
     - job_name: dev-apps
       metrics_path: /metrics
@@ -78,6 +78,63 @@ vmagent:
       memory: 128Mi
     limits:
       memory: 256Mi
+
+# Concrete JMX example used by scripts/k3d-test-jmx-scraper.sh. The scraper stays
+# ready when this test endpoint is absent; the smoke script creates it before deployment.
+jmx-scraper:
+  enabled: true
+  config:
+    scraperYaml: |
+      global:
+        scrapeInterval: 30s
+        scrapeTimeout: 10s
+        maxConcurrentScrapes: 4
+
+      jmx:
+        lowercaseOutputName: true
+        lowercaseOutputLabelNames: true
+        inferCounterTypeFromName: true
+        autoExcludeObjectNameAttributes: true
+
+      endpoints:
+        test-jmx-java:
+          hostPort: test-jmx-java:9999
+          ssl: false
+
+      collectors:
+        basic-jvm:
+          includeObjectNames:
+            - "java.lang:type=Memory"
+            - "java.lang:type=Threading"
+            - "java.lang:type=Runtime"
+          rules:
+            - pattern: 'java.lang<type=Memory><HeapMemoryUsage>(used|committed|max|init): (.*)'
+              name: jvm_memory_$1_bytes
+              help: Bytes for JVM heap memory by state.
+              type: GAUGE
+              labels:
+                area: heap
+            - pattern: 'java.lang<type=Threading><>ThreadCount: (.*)'
+              name: jvm_threads_current
+              help: Current live JVM threads.
+              type: GAUGE
+            - pattern: 'java.lang<type=Runtime><>Uptime: (.*)'
+              name: jvm_uptime_seconds
+              help: JVM uptime in seconds.
+              type: GAUGE
+              valueFactor: 0.001
+
+      jobs:
+        - name: dev-jvms
+          endpoints: [test-jmx-java]
+          collectors: [basic-jvm]
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
 
 fluent-bit:
   resources:
